@@ -42,7 +42,7 @@ public void OnPluginStart()
 	CvarEnable.AddChangeHook(OnConVarChanged);
 	Enable = CvarEnable.BoolValue;
 
-	CvarCooldown = CreateConVar("sm_acjs_cooldown", "0.4", "The time interval that defines a jump as invalid", 0, true, 0.1, true, 0.5);
+	CvarCooldown = CreateConVar("sm_acjs_cooldown", "0.4", "The time interval that defines a jump as invalid", 0, true, 0.1, true, 2.0);
 	CvarCooldown.AddChangeHook(OnConVarChanged);
 	Cooldown = CvarCooldown.FloatValue;
 
