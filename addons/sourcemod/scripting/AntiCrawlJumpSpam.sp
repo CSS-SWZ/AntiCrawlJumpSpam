@@ -6,11 +6,13 @@ ConVar CvarEnable;
 ConVar CvarCooldown;
 ConVar CvarFreezeDelay;
 ConVar CvarMaxInvalidJumps;
+ConVar CvarMinOngroundTicks;
 
 bool Enable;
 float Cooldown;
 float FreezeDelay;
 int MaxInvalidJumps;
+int MinOngroundTicks;
 
 // Время, в течение которого считается кол-во невалидных прыжков (=curr_time + COOLDOWN * MAX_INVALID_JUMPS)
 float Record[MAXPLAYERS + 1];
@@ -53,6 +55,11 @@ public void OnPluginStart()
 	CvarMaxInvalidJumps = CreateConVar("sm_acjs_jumps_max", "3", "Number of invalid jumps to start blocking jumpspams", 0, true, 1.0, true, 10.0);
 	CvarMaxInvalidJumps.AddChangeHook(OnConVarChanged);
 	MaxInvalidJumps = CvarMaxInvalidJumps.IntValue;
+	
+	CvarMinOngroundTicks = CreateConVar("sm_acjs_onground_min", "5", "Number of ticks a blocked player must stand on the ground for his next jump not to be blocked", 0, true, 0.0, true, 100.0);
+	CvarMinOngroundTicks.AddChangeHook(OnConVarChanged);
+	MinOngroundTicks = CvarMinOngroundTicks.IntValue;
+
 	AutoExecConfig(true, "plugin.AntiCrawlJumpSpam");
 
 	HookEvent("player_jump", Event_PlayerJump);
@@ -95,6 +102,10 @@ public void OnConVarChanged(ConVar cvar, const char[] oldValue, const char[] new
 	else if(cvar == CvarMaxInvalidJumps)
 	{
 		MaxInvalidJumps = cvar.IntValue;
+	}
+	else if(cvar == CvarMinOngroundTicks)
+	{
+		MinOngroundTicks = cvar.IntValue;
 	}
 }
 
@@ -147,12 +158,19 @@ public Action OnPlayerRunCmd(int client, int& buttons)
 	static float time;
 	time = GetGameTime();
 
+	static bool onground;
+	static int onground_ticks[MAXPLAYERS + 1];
+
 	if(!IsPlayerAlive(client))
+	{
+		onground_ticks[client] = 0;
 		return Plugin_Continue;
+	}
 
 	// Истекла ли заморозка у игрока?
 	if(Freeze[client])
 	{
+		onground_ticks[client] = 0;
 		if(Freeze[client] >= time)
 			return Plugin_Continue;
 
@@ -164,14 +182,28 @@ public Action OnPlayerRunCmd(int client, int& buttons)
 
 	// Игрок не попал еще под блокировку, поэтому пропускаем наказание
 	if(time > Block[client])
+	{
+		onground_ticks[client] = 0;
 		return Plugin_Continue;
+	}
 
-	if(buttons & IN_JUMP && JumpCooldown[client] >= time && GetEntityFlags(client) & FL_ONGROUND)
+	onground = !!(GetEntityFlags(client) & FL_ONGROUND);
+
+	if(onground)
+	{
+		++onground_ticks[client];
+	}
+	else
+	{
+		onground_ticks[client] = 0;
+	}
+
+	if(buttons & IN_JUMP && JumpCooldown[client] >= time && onground && onground_ticks[client] <= MinOngroundTicks)
 	{
 		buttons &= ~IN_JUMP;
 		Freeze[client] = time + FreezeDelay;
 		SetEntityMoveType(client, MOVETYPE_NONE);
-		
+
 		// Обновляем время блокировки с учетом время заморозки поскольку игрок не понял 
 		Block[client] = time + FreezeDelay + Cooldown * float(MaxInvalidJumps);
 
