@@ -7,12 +7,14 @@ ConVar CvarCooldown;
 ConVar CvarFreezeDelay;
 ConVar CvarMaxInvalidJumps;
 ConVar CvarMinOngroundTicks;
+ConVar CvarVelocityMax;
 
 bool Enable;
 float Cooldown;
 float FreezeDelay;
 int MaxInvalidJumps;
 int MinOngroundTicks;
+float VelocityMax;
 
 // Время, в течение которого считается кол-во невалидных прыжков (=curr_time + COOLDOWN * MAX_INVALID_JUMPS)
 float Record[MAXPLAYERS + 1];
@@ -28,6 +30,9 @@ float Block[MAXPLAYERS + 1];
 
 // Время заморозки при блокировке очередного невалидного прыжка (time + FREEZE_DELAY)
 float Freeze[MAXPLAYERS + 1];
+
+// Оффсеты
+int m_vecAbsVelocity = -1;
 
 public Plugin myinfo =
 {
@@ -60,9 +65,18 @@ public void OnPluginStart()
 	CvarMinOngroundTicks.AddChangeHook(OnConVarChanged);
 	MinOngroundTicks = CvarMinOngroundTicks.IntValue;
 
+	CvarVelocityMax = CreateConVar("sm_acjs_velocity_max", "300");
+	CvarVelocityMax.AddChangeHook(OnConVarChanged);
+	VelocityMax = CvarVelocityMax.FloatValue;
+
 	AutoExecConfig(true, "plugin.AntiCrawlJumpSpam");
 
 	HookEvent("player_jump", Event_PlayerJump);
+}
+
+public void OnMapStart()
+{
+	m_vecAbsVelocity = FindDataMapInfo(0, "m_vecAbsVelocity");
 }
 
 public void OnConVarChanged(ConVar cvar, const char[] oldValue, const char[] newValue)
@@ -106,6 +120,10 @@ public void OnConVarChanged(ConVar cvar, const char[] oldValue, const char[] new
 	else if(cvar == CvarMinOngroundTicks)
 	{
 		MinOngroundTicks = cvar.IntValue;
+	}
+	else if(cvar == CvarVelocityMax)
+	{
+		VelocityMax = cvar.FloatValue;
 	}
 }
 
@@ -200,12 +218,16 @@ public Action OnPlayerRunCmd(int client, int& buttons)
 
 	if(buttons & IN_JUMP && JumpCooldown[client] >= time && onground && onground_ticks[client] <= MinOngroundTicks)
 	{
-		buttons &= ~IN_JUMP;
-		Freeze[client] = time + FreezeDelay;
-		SetEntityMoveType(client, MOVETYPE_NONE);
 
 		// Обновляем время блокировки с учетом время заморозки поскольку игрок не понял 
 		Block[client] = time + FreezeDelay + Cooldown * float(MaxInvalidJumps);
+
+		if(IsClientFreezable(client))
+		{
+			buttons &= ~IN_JUMP;
+			Freeze[client] = time + FreezeDelay;
+			SetEntityMoveType(client, MOVETYPE_NONE);
+		}
 
 		return Plugin_Changed;
 	}
@@ -229,4 +251,27 @@ void ResetClientVars(int client)
 	JumpCooldown[client] = 0.0;
 	Block[client] = 0.0;
 	Freeze[client] = 0.0;
+}
+
+stock bool IsClientFreezable(int client)
+{
+	// Игрок на лифте/пропе/голове чьей-то xD
+	if(GetEntPropEnt(client, Prop_Send, "m_hGroundEntity") > 0)
+		return false;
+	
+	if(VelocityMax > 0)
+	{
+		float velocity[3];
+		float magnitude;
+	
+		GetEntDataVector(client, m_vecAbsVelocity, velocity);
+	
+		magnitude = SquareRoot(Pow(velocity[0], 2.0) + Pow(velocity[1], 2.0));
+	
+		// Игрок не набрал большой скорости
+		if(VelocityMax >= magnitude)
+			return false;
+	}
+	
+	return true;
 }
